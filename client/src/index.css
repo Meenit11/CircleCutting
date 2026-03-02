@@ -1,0 +1,197 @@
+@import "tailwindcss";
+
+/* ── Design Tokens ── */
+@theme {
+  --color-ocean-950: #111113;
+  --color-ocean-900: #19191d;
+  --color-ocean-800: #222228;
+  --color-ocean-700: #2c2c34;
+  --color-ocean-600: #38383f;
+  --color-gunmetal: #1c1c21;
+  --color-slate-panel: #232329;
+  --color-steel: #3a3a42;
+  --color-buoy: #e8723a;
+  --color-buoy-glow: rgba(232, 114, 58, 0.2);
+  --color-teal: #b0916a;
+  --color-teal-glow: rgba(176, 145, 106, 0.15);
+  --color-seafoam: #6dba7d;
+  --color-seafoam-glow: rgba(109, 186, 125, 0.15);
+  --color-amber: #d4a03c;
+  --color-amber-glow: rgba(212, 160, 60, 0.12);
+  --color-danger: #d45050;
+  --color-text-primary: #e8e4df;
+  --color-text-secondary: #9a9590;
+  --color-text-dim: #6b6560;
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-bright: rgba(255, 255, 255, 0.14);
+
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Global Resets ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-ocean-950);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* ── Blueprint Grid Background ── */
+.blueprint-bg {
+  background-image:
+    linear-gradient(rgba(176, 145, 106, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(176, 145, 106, 0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ── Noise Texture Overlay ── */
+.noise-overlay::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
+}
+
+/* ── Corner Bracket Card ── */
+.bracket-card {
+  position: relative;
+  border: 1px solid var(--color-border);
+  background: var(--color-gunmetal);
+  border-radius: 6px;
+}
+
+.bracket-card::before,
+.bracket-card::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: var(--color-teal);
+  opacity: 0.35;
+}
+
+.bracket-card::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+
+.bracket-card::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+}
+
+/* ── Mono Numbers ── */
+.mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-steel);
+  border-radius: 3px;
+}
+
+/* ── Input Styles ── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ── Sonar ping animation ── */
+@keyframes sonar-ping {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.4;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.sonar-ping {
+  animation: sonar-ping 1.5s ease-out forwards;
+}
+
+/* ── Pulse glow ── */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Laser trace ── */
+@keyframes laser-trace {
+  from {
+    stroke-dashoffset: 1000;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ── Checkmark draw ── */
+@keyframes draw-check {
+  from {
+    stroke-dashoffset: 24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}

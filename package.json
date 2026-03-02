@@ -1,0 +1,10 @@
+{
+  "name": "circle-cutting",
+  "private": true,
+  "scripts": {
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && node server.js",
+    "build:client": "cd client && npm run build",
+    "install:all": "cd client && npm install && cd ../server && npm install"
+  }
+}
