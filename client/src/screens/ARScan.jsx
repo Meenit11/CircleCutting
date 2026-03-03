@@ -4,11 +4,13 @@ import { useStore } from '../store/store';
 import { pageTransition } from '../animations/animations';
 
 export default function ARScan() {
+    const sheet = useStore((s) => s.sheet);
     const setScreen = useStore((s) => s.setScreen);
     const setSheet = useStore((s) => s.setSheet);
     const [corners, setCorners] = useState([]);
     const [showInstructions, setShowInstructions] = useState(true);
     const [detectedDims, setDetectedDims] = useState(null);
+    const [polygonArea, setPolygonArea] = useState(null);
     const [editLength, setEditLength] = useState('');
     const [editWidth, setEditWidth] = useState('');
     const [shape, setShape] = useState('rectangle');
@@ -16,6 +18,7 @@ export default function ARScan() {
     const [cameraReady, setCameraReady] = useState(false);
     const videoRef = useRef(null);
     const streamRef = useRef(null);
+    const containerRef = useRef(null);
 
     // Start camera
     useEffect(() => {
@@ -65,27 +68,110 @@ export default function ARScan() {
         return () => clearTimeout(t);
     }, []);
 
-    const handleTap = (e) => {
+    const [unit, setUnit] = useState('mm'); // mm | cm | in
+    const SCALE_PX_TO_MM = 2.5;
+
+    const convertLength = (mm) => {
+        if (unit === 'cm') return mm / 10;
+        if (unit === 'in') return mm / 25.4;
+        return mm;
+    };
+
+    const formatLength = (mm) => {
+        const v = convertLength(mm);
+        if (unit === 'mm') return Math.round(v).toString();
+        return v.toFixed(1);
+    };
+
+    const computePolygonMetrics = (points) => {
+        if (points.length < 4) {
+            setDetectedDims(null);
+            setPolygonArea(null);
+            setEditLength('');
+            setEditWidth('');
+            return;
+        }
+
+        // Edge lengths (4 sides) in pixels
+        const edgesPx = points.map((p, i) => {
+            const next = points[(i + 1) % points.length];
+            const dx = next.x - p.x;
+            const dy = next.y - p.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        });
+
+        const edgesMm = edgesPx.map((d) => d * SCALE_PX_TO_MM);
+        const lengthMm = Math.round(Math.max(...edgesMm));
+        const widthMm = Math.round(Math.min(...edgesMm));
+
+        // Polygon area via shoelace formula (convert to mm²)
+        let sum = 0;
+        for (let i = 0; i < points.length; i++) {
+            const j = (i + 1) % points.length;
+            sum += points[i].x * points[j].y - points[j].x * points[i].y;
+        }
+        const areaPx2 = Math.abs(sum) / 2;
+        const areaMm2 = areaPx2 * SCALE_PX_TO_MM * SCALE_PX_TO_MM;
+
+        setDetectedDims({ length: lengthMm, width: widthMm });
+        setPolygonArea(Math.round(areaMm2));
+        setEditLength(lengthMm.toString());
+        setEditWidth(widthMm.toString());
+    };
+
+    const addCorner = (x, y) => {
         if (corners.length >= 4) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
         const newCorners = [...corners, { x, y }];
         setCorners(newCorners);
 
         if (newCorners.length === 4) {
-            // Estimate dimensions from pixel distance between corners
-            // This is a rough estimate — corners represent sheet edges
-            const dx1 = Math.abs(newCorners[1].x - newCorners[0].x);
-            const dy1 = Math.abs(newCorners[1].y - newCorners[0].y);
-            const dx2 = Math.abs(newCorners[3].x - newCorners[0].x);
-            const dy2 = Math.abs(newCorners[3].y - newCorners[0].y);
-            const len = Math.round(Math.sqrt(dx1 * dx1 + dy1 * dy1) * 2.5);
-            const wid = Math.round(Math.sqrt(dx2 * dx2 + dy2 * dy2) * 2.5);
-            setDetectedDims({ length: len, width: wid });
-            setEditLength(len.toString());
-            setEditWidth(wid.toString());
+            computePolygonMetrics(newCorners);
+        } else {
+            setDetectedDims(null);
+            setPolygonArea(null);
+            setEditLength('');
+            setEditWidth('');
         }
+    };
+
+    const handleTap = (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        addCorner(x, y);
+    };
+
+    const handleAddFromReticle = (e) => {
+        e.stopPropagation();
+        if (!containerRef.current || corners.length >= 4) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = rect.width / 2;
+        const y = rect.height / 2;
+        addCorner(x, y);
+    };
+
+    const handleUndo = (e) => {
+        e.stopPropagation();
+        if (!corners.length) return;
+        const updated = corners.slice(0, -1);
+        setCorners(updated);
+        if (updated.length === 4) {
+            computePolygonMetrics(updated);
+        } else {
+            setDetectedDims(null);
+            setPolygonArea(null);
+            setEditLength('');
+            setEditWidth('');
+        }
+    };
+
+    const handleClear = (e) => {
+        e.stopPropagation();
+        setCorners([]);
+        setDetectedDims(null);
+        setPolygonArea(null);
+        setEditLength('');
+        setEditWidth('');
     };
 
     const handleConfirm = () => {
@@ -133,6 +219,7 @@ export default function ARScan() {
             {/* Camera area */}
             <div
                 className="flex-1 relative bg-ocean-950 cursor-crosshair overflow-hidden"
+                ref={containerRef}
                 onClick={handleTap}
             >
                 {/* Live camera feed */}
@@ -180,6 +267,14 @@ export default function ARScan() {
                 {/* Grid overlay */}
                 <div className="absolute inset-0 blueprint-bg opacity-20 pointer-events-none" />
 
+                {/* Center reticle */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-8 h-8 rounded-full border border-teal/70 bg-black/10 relative">
+                        <div className="absolute inset-1 rounded-full border border-teal/40" />
+                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-teal" />
+                    </div>
+                </div>
+
                 {/* Scan line animation */}
                 {cameraReady && corners.length < 4 && (
                     <motion.div
@@ -200,7 +295,7 @@ export default function ARScan() {
                         <div className="bg-gunmetal/90 backdrop-blur-sm rounded-lg px-6 py-4 max-w-xs text-center border border-border pointer-events-auto"
                             onClick={(e) => { e.stopPropagation(); setShowInstructions(false); }}>
                             <p className="text-sm text-text-primary mb-1">Point camera at your sheet on a flat surface</p>
-                            <p className="text-xs text-text-secondary">Tap each corner of the sheet to measure</p>
+                            <p className="text-xs text-text-secondary">Use the center reticle or tap to drop points around the sheet</p>
                         </div>
                     </motion.div>
                 )}
@@ -237,26 +332,27 @@ export default function ARScan() {
                     </motion.div>
                 ))}
 
-                {/* Lines between corners */}
-                {corners.length >= 2 && (
+                {/* Lines between corners and live preview to reticle */}
+                {corners.length >= 1 && (
                     <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                        {corners.map((c, i) => {
-                            if (i === 0) return null;
-                            const prev = corners[i - 1];
-                            return (
-                                <motion.line
-                                    key={i}
-                                    x1={prev.x} y1={prev.y}
-                                    x2={c.x} y2={c.y}
-                                    stroke="#b0916a"
-                                    strokeWidth="2"
-                                    strokeDasharray="6 3"
-                                    initial={{ pathLength: 0, opacity: 0 }}
-                                    animate={{ pathLength: 1, opacity: 0.9 }}
-                                    transition={{ duration: 0.4 }}
-                                />
-                            );
-                        })}
+                        {corners.length >= 2 &&
+                            corners.map((c, i) => {
+                                if (i === 0) return null;
+                                const prev = corners[i - 1];
+                                return (
+                                    <motion.line
+                                        key={i}
+                                        x1={prev.x} y1={prev.y}
+                                        x2={c.x} y2={c.y}
+                                        stroke="#b0916a"
+                                        strokeWidth="2"
+                                        strokeDasharray="6 3"
+                                        initial={{ pathLength: 0, opacity: 0 }}
+                                        animate={{ pathLength: 1, opacity: 0.9 }}
+                                        transition={{ duration: 0.4 }}
+                                    />
+                                );
+                            })}
                         {corners.length === 4 && (
                             <motion.line
                                 x1={corners[3].x} y1={corners[3].y}
@@ -269,6 +365,45 @@ export default function ARScan() {
                                 transition={{ duration: 0.4, delay: 0.15 }}
                             />
                         )}
+
+                        {/* Live segment from last point to reticle while placing */}
+                        {containerRef.current && corners.length > 0 && corners.length < 4 && (() => {
+                            const rect = containerRef.current.getBoundingClientRect();
+                            const cx = rect.width / 2;
+                            const cy = rect.height / 2;
+                            const last = corners[corners.length - 1];
+                            const dx = cx - last.x;
+                            const dy = cy - last.y;
+                            const liveMm = Math.sqrt(dx * dx + dy * dy) * SCALE_PX_TO_MM;
+                            const liveDisplay = formatLength(liveMm);
+                            return (
+                                <>
+                                    <motion.line
+                                        x1={last.x}
+                                        y1={last.y}
+                                        x2={cx}
+                                        y2={cy}
+                                        stroke="#38bdf8"
+                                        strokeWidth="2"
+                                        strokeDasharray="4 4"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 0.9 }}
+                                        transition={{ duration: 0.2 }}
+                                    />
+                                    <text
+                                        x={(last.x + cx) / 2}
+                                        y={(last.y + cy) / 2 - 8}
+                                        textAnchor="middle"
+                                        fill="#38bdf8"
+                                        fontSize="11"
+                                        fontFamily="'JetBrains Mono', monospace"
+                                    >
+                                        ~{liveDisplay}{unit}
+                                    </text>
+                                </>
+                            );
+                        })()}
+
                         {/* Dimension labels on lines */}
                         {corners.length === 4 && detectedDims && (
                             <>
@@ -281,7 +416,7 @@ export default function ARScan() {
                                     fontFamily="'JetBrains Mono', monospace"
                                     className="drop-shadow-lg"
                                 >
-                                    ~{detectedDims.length}mm
+                                    ~{formatLength(detectedDims.length)}{unit}
                                 </text>
                                 <text
                                     x={(corners[0].x + corners[3].x) / 2 - 10}
@@ -292,7 +427,7 @@ export default function ARScan() {
                                     fontFamily="'JetBrains Mono', monospace"
                                     className="drop-shadow-lg"
                                 >
-                                    ~{detectedDims.width}mm
+                                    ~{formatLength(detectedDims.width)}{unit}
                                 </text>
                             </>
                         )}
@@ -310,7 +445,7 @@ export default function ARScan() {
                 {corners.length < 4 ? (
                     <div className="text-center">
                         <div className="mono-num text-lg text-teal mb-1">
-                            Tap corner {corners.length + 1} of 4
+                            Drop point {corners.length + 1} of 4
                         </div>
                         <div className="flex justify-center gap-2 mt-2">
                             {[0, 1, 2, 3].map(i => (
@@ -321,15 +456,28 @@ export default function ARScan() {
                                 />
                             ))}
                         </div>
-                        <div className="flex items-center justify-center gap-4 mt-3">
-                            {corners.length > 0 && (
-                                <button
-                                    className="text-xs text-text-dim hover:text-text-secondary transition-colors"
-                                    onClick={(e) => { e.stopPropagation(); setCorners([]); }}
-                                >
-                                    Reset corners
-                                </button>
-                            )}
+                        <div className="flex items-center justify-center gap-3 mt-4">
+                            <button
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-ocean-800 text-xs text-text-primary border border-border hover:border-teal/60 hover:text-teal transition-colors"
+                                onClick={handleAddFromReticle}
+                            >
+                                <span className="text-base leading-none">＋</span>
+                                <span>Drop at center</span>
+                            </button>
+                            <button
+                                className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                onClick={handleUndo}
+                                disabled={corners.length === 0}
+                            >
+                                ⟲ Undo
+                            </button>
+                            <button
+                                className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                onClick={handleClear}
+                                disabled={corners.length === 0}
+                            >
+                                Clear
+                            </button>
                             <button
                                 className="text-xs text-buoy hover:text-buoy/80 transition-colors"
                                 onClick={handleGoManual}
@@ -378,8 +526,56 @@ export default function ARScan() {
                             )}
                         </div>
 
-                        <div className="flex items-center gap-1 text-xs text-amber">
-                            ⚠️ Camera estimates are rough. Adjust dimensions above if needed.
+                        {polygonArea && (
+                            <div className="text-xs text-text-secondary">
+                                Approx. area:{' '}
+                                <span className="mono-num text-text-primary">
+                                    {polygonArea.toLocaleString()} mm²
+                                </span>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-1 text-amber">
+                                ⚠️ Camera estimates are rough. Adjust dimensions above if needed.
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-text-dim">Units:</span>
+                                    {['mm', 'cm', 'in'].map((u) => (
+                                        <button
+                                            key={u}
+                                            onClick={() => setUnit(u)}
+                                            className={`px-1.5 py-0.5 rounded border text-[11px] mono-num ${unit === u
+                                                ? 'border-teal/60 text-teal bg-teal/10'
+                                                : 'border-border text-text-dim hover:border-teal/40 hover:text-text-secondary'
+                                                }`}
+                                        >
+                                            {u}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                <span className="text-text-dim">Margin:</span>
+                                <input
+                                    type="number"
+                                    value={sheet.edgeMargin}
+                                    onChange={(e) => setSheet({ edgeMargin: Number(e.target.value) })}
+                                    className="w-16 bg-ocean-800 border border-border rounded px-2 py-1 text-[11px] mono-num text-text-primary focus:outline-none focus:border-teal/50"
+                                    min="0"
+                                />
+                                <span className="text-text-dim ml-1">Kerf:</span>
+                                <input
+                                    type="number"
+                                    value={sheet.kerf}
+                                    onChange={(e) => setSheet({ kerf: Number(e.target.value) })}
+                                    className="w-16 bg-ocean-800 border border-border rounded px-2 py-1 text-[11px] mono-num text-text-primary focus:outline-none focus:border-teal/50"
+                                    min="0"
+                                    step="0.5"
+                                />
+                                <span className="text-text-dim ml-1">mm</span>
+                                </div>
+                            </div>
                         </div>
 
                         <button
