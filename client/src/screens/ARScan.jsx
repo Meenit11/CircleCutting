@@ -335,9 +335,9 @@ export default function ARScan() {
                         >
                             <div className="bg-gunmetal/90 backdrop-blur-sm rounded-lg px-6 py-4 max-w-xs text-center border border-border pointer-events-auto"
                                 onClick={(e) => { e.stopPropagation(); setShowInstructions(false); }}>
-                                <p className="text-sm text-text-primary mb-1">Aim the reticle at a sheet corner</p>
-                                <p className="text-xs text-text-secondary">Press "Place Point" to mark each corner</p>
-                                <p className="text-xs text-text-dim mt-2">💡 Calibrate first for better accuracy</p>
+                                <p className="text-sm text-text-primary mb-1">Tap the screen to aim the reticle</p>
+                                <p className="text-xs text-text-secondary">Then press "Place Point" to confirm each corner</p>
+                                <p className="text-xs text-text-dim mt-2">Tap → aim → place — repeat for 4 corners</p>
                             </div>
                         </motion.div>
                     )}
