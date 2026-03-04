@@ -47,66 +47,6 @@ export default function ARScan() {
     const containerRef = useRef(null);
     const [reticlePos, setReticlePos] = useState({ x: 0, y: 0 });
 
-    // --- SENSOR TRACKING ---
-    const [sensorActive, setSensorActive] = useState(false);
-    const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
-    const pivotOrientation = useRef(null);
-    const SENSITIVITY = 18; // Pixels to move per degree of rotation
-
-    const requestSensors = async () => {
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            try {
-                const permission = await DeviceOrientationEvent.requestPermission();
-                if (permission === 'granted') startSensorLoop();
-            } catch (e) {
-                console.error("Sensor permission failed", e);
-            }
-        } else {
-            startSensorLoop();
-        }
-    };
-
-    const startSensorLoop = () => {
-        window.addEventListener('deviceorientation', (e) => {
-            if (pivotOrientation.current === null) {
-                pivotOrientation.current = { a: e.alpha, b: e.beta, g: e.gamma };
-            }
-            setOrientation({ alpha: e.alpha, beta: e.beta, gamma: e.gamma });
-            setSensorActive(true);
-        });
-    };
-
-    useEffect(() => {
-        // Auto-start on Android, requires tap on iOS
-        if (!(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')) {
-            startSensorLoop();
-        }
-    }, []);
-
-    // Function to get "pinned" coordinates for a point
-    const getPinnedPos = (p) => {
-        if (!sensorActive || !pivotOrientation.current) return p;
-
-        // Calculate deltas in degrees
-        // alpha = compass, beta = tilt front/back, gamma = tilt left/right
-        let da = orientation.alpha - pivotOrientation.current.a;
-        if (da > 180) da -= 360;
-        if (da < -180) da += 360;
-
-        const db = orientation.beta - pivotOrientation.current.b;
-        const dg = orientation.gamma - pivotOrientation.current.g;
-
-        // Shift point on screen to counteract rotation
-        // We use da (pan) for X and db (tilt) for Y
-        return {
-            x: p.x - (da * SENSITIVITY),
-            y: p.y + (db * SENSITIVITY)
-        };
-    };
-
-    // Calculate distance between points using "pinned" logic
-    const distBetween = (a, b) => Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-
     // Start camera
     useEffect(() => {
         async function startCamera() {
@@ -147,7 +87,7 @@ export default function ARScan() {
         };
     }, []);
 
-    // Set reticle to center
+    // Set reticle to center when container is available
     useEffect(() => {
         if (containerRef.current) {
             const rect = containerRef.current.getBoundingClientRect();
@@ -156,26 +96,30 @@ export default function ARScan() {
     }, [cameraReady]);
 
     useEffect(() => {
-        if (!cameraReady) return;
         const t = setTimeout(() => setShowInstructions(false), 5000);
         return () => clearTimeout(t);
-    }, [cameraReady]);
+    }, []);
 
     // Calculate polygon dimensions when 4 points placed
     useEffect(() => {
-        if (points.length === 4) {
-            // We use the raw points for logic but labels will show pinned distance
+        if (points.length === 4 && pxPerMm) {
             const xs = points.map(p => p.x);
             const ys = points.map(p => p.y);
             const minX = Math.min(...xs), maxX = Math.max(...xs);
             const minY = Math.min(...ys), maxY = Math.max(...ys);
-
-            const pxLen = maxX - minX;
-            const pxWid = maxY - minY;
-
-            const len = pxPerMm ? Math.round(pxLen / pxPerMm) : Math.round(pxLen * 0.4);
-            const wid = pxPerMm ? Math.round(pxWid / pxPerMm) : Math.round(pxWid * 0.4);
-
+            const len = Math.round((maxX - minX) / pxPerMm);
+            const wid = Math.round((maxY - minY) / pxPerMm);
+            setDetectedDims({ length: len, width: wid });
+            setEditLength(len.toString());
+            setEditWidth(wid.toString());
+        } else if (points.length === 4 && !pxPerMm) {
+            // Fallback: rough estimate using 2.5px/mm ratio
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const len = Math.round((maxX - minX) * 0.4);
+            const wid = Math.round((maxY - minY) * 0.4);
             setDetectedDims({ length: len, width: wid });
             setEditLength(len.toString());
             setEditWidth(wid.toString());
@@ -183,26 +127,9 @@ export default function ARScan() {
     }, [points, pxPerMm]);
 
     const handlePlacePoint = useCallback(() => {
-        // Save the point as it appears IN THE WORLD (compensate for current rotation)
-        const currentA = orientation.alpha;
-        const currentB = orientation.beta;
-        const pivotA = pivotOrientation.current?.a || 0;
-        const pivotB = pivotOrientation.current?.b || 0;
-
-        let da = currentA - pivotA;
-        if (da > 180) da -= 360;
-        if (da < -180) da += 360;
-        const db = currentB - pivotB;
-
-        // The point is saved relative to the "Ideal Front Pose"
-        const savedPoint = {
-            x: reticlePos.x + (da * SENSITIVITY),
-            y: reticlePos.y - (db * SENSITIVITY)
-        };
-
         if (calibrating) {
             if (calibPoints.length < 2) {
-                const newPts = [...calibPoints, savedPoint];
+                const newPts = [...calibPoints, { ...reticlePos }];
                 setCalibPoints(newPts);
                 if (newPts.length === 2) {
                     const dx = newPts[1].x - newPts[0].x;
@@ -217,8 +144,48 @@ export default function ARScan() {
             return;
         }
         if (points.length >= 4) return;
-        setPoints(prev => [...prev, savedPoint]);
-    }, [calibrating, calibPoints, reticlePos, calibRefMm, points.length, orientation, sensorActive]);
+        setPoints(prev => [...prev, { ...reticlePos }]);
+    }, [calibrating, calibPoints, reticlePos, calibRefMm, points.length]);
+
+    const handleUndo = () => {
+        if (calibrating && calibPoints.length > 0) {
+            setCalibPoints(prev => prev.slice(0, -1));
+            return;
+        }
+        if (points.length > 0) {
+            setPoints(prev => prev.slice(0, -1));
+            setDetectedDims(null);
+        }
+    };
+
+    const handleClear = () => {
+        setPoints([]);
+        setDetectedDims(null);
+        setCalibPoints([]);
+    };
+
+    const handleConfirm = () => {
+        const l = Number(editLength);
+        const w = shape === 'square' ? l : Number(editWidth);
+        if (l > 0 && w > 0) {
+            setSheet({
+                length: l.toString(),
+                width: w.toString(),
+                shape,
+                edgeMargin: Number(edgeMargin) || 5,
+                kerf: Number(kerf) || 2,
+            });
+            if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+            setScreen('circleConfig');
+        }
+    };
+
+    const handleGoManual = () => {
+        if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+        setScreen('manualEntry');
+    };
+
+    const distBetween = (a, b) => Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
 
     return (
         <motion.div
@@ -258,8 +225,16 @@ export default function ARScan() {
                 </div>
             </div>
 
-            {/* Camera area */}
-            <div className="flex-1 relative bg-ocean-950 overflow-hidden" ref={containerRef}>
+            {/* Camera area - tap to move reticle */}
+            <div
+                className="flex-1 relative bg-ocean-950 overflow-hidden cursor-crosshair"
+                ref={containerRef}
+                onClick={(e) => {
+                    if (points.length >= 4) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setReticlePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                }}
+            >
                 {/* Live camera feed */}
                 <video
                     ref={videoRef}
@@ -368,67 +343,63 @@ export default function ARScan() {
                     )}
                 </AnimatePresence>
 
-                {/* Placed points — now using pinned coordinates */}
-                {points.map((p, i) => {
-                    const pinned = getPinnedPos(p);
-                    return (
+                {/* Placed points */}
+                {points.map((p, i) => (
+                    <motion.div
+                        key={i}
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: p.x - 14, top: p.y - 14 }}
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                    >
+                        <svg width="28" height="28" viewBox="0 0 28 28">
+                            <circle cx="14" cy="14" r="10" fill="none" stroke="#3fb8a0" strokeWidth="2" />
+                            <circle cx="14" cy="14" r="3" fill="#3fb8a0" />
+                        </svg>
+                        {/* Ring pulse */}
                         <motion.div
-                            key={i}
-                            className="absolute pointer-events-none z-10"
-                            style={{ left: pinned.x - 14, top: pinned.y - 14 }}
-                            initial={{ scale: 0, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                        >
-                            <svg width="28" height="28" viewBox="0 0 28 28">
-                                <circle cx="14" cy="14" r="10" fill="none" stroke="#3fb8a0" strokeWidth="2" />
-                                <circle cx="14" cy="14" r="3" fill="#3fb8a0" />
-                            </svg>
-                            <motion.div
-                                className="absolute rounded-full border-2 border-teal pointer-events-none"
-                                style={{ top: 3, left: 3, width: 22, height: 22 }}
-                                initial={{ scale: 1, opacity: 0.7 }}
-                                animate={{ scale: 2.5, opacity: 0 }}
-                                transition={{ duration: 0.8 }}
-                            />
-                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs mono-num text-teal bg-gunmetal/80 px-1.5 py-0.5 rounded">
-                                {i + 1}
-                            </span>
-                        </motion.div>
-                    );
-                })}
+                            className="absolute rounded-full border-2 border-teal pointer-events-none"
+                            style={{ top: 3, left: 3, width: 22, height: 22 }}
+                            initial={{ scale: 1, opacity: 0.7 }}
+                            animate={{ scale: 2.5, opacity: 0 }}
+                            transition={{ duration: 0.8 }}
+                        />
+                        {/* Point label */}
+                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs mono-num text-teal bg-gunmetal/80 px-1.5 py-0.5 rounded">
+                            {i + 1}
+                        </span>
+                    </motion.div>
+                ))}
 
-                {/* Calibration points — pinned */}
-                {calibPoints.map((p, i) => {
-                    const pinned = getPinnedPos(p);
-                    return (
-                        <motion.div
-                            key={`cal-${i}`}
-                            className="absolute pointer-events-none z-10"
-                            style={{ left: pinned.x - 8, top: pinned.y - 8 }}
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                        >
-                            <svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="#e8a838" strokeWidth="2" /><circle cx="8" cy="8" r="2" fill="#e8a838" /></svg>
-                        </motion.div>
-                    );
-                })}
+                {/* Calibration points */}
+                {calibPoints.map((p, i) => (
+                    <motion.div
+                        key={`cal-${i}`}
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: p.x - 8, top: p.y - 8 }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                    >
+                        <svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="#e8a838" strokeWidth="2" /><circle cx="8" cy="8" r="2" fill="#e8a838" /></svg>
+                    </motion.div>
+                ))}
 
-                {/* Lines between points — pinned */}
+                {/* Lines between points + distance labels */}
                 <svg className="absolute inset-0 w-full h-full pointer-events-none z-5">
+                    {/* Lines between placed points */}
                     {points.map((p, i) => {
                         if (i === 0) return null;
-                        const prevPinned = getPinnedPos(points[i - 1]);
-                        const curPinned = getPinnedPos(p);
-                        const dist = distBetween(points[i - 1], p);
-                        const midX = (prevPinned.x + curPinned.x) / 2;
-                        const midY = (prevPinned.y + curPinned.y) / 2;
+                        const prev = points[i - 1];
+                        const dist = distBetween(prev, p);
+                        const midX = (prev.x + p.x) / 2;
+                        const midY = (prev.y + p.y) / 2;
                         return (
                             <g key={`line-${i}`}>
                                 <motion.line
-                                    x1={prevPinned.x} y1={prevPinned.y}
-                                    x2={curPinned.x} y2={curPinned.y}
+                                    x1={prev.x} y1={prev.y}
+                                    x2={p.x} y2={p.y}
                                     stroke="#3fb8a0"
                                     strokeWidth="2"
                                     strokeDasharray="6 3"
@@ -444,27 +415,25 @@ export default function ARScan() {
                         );
                     })}
 
-                    {/* Closing line (4→1) — pinned */}
+                    {/* Closing line (4→1) */}
                     {points.length === 4 && (
                         <g>
+                            <motion.line
+                                x1={points[3].x} y1={points[3].y}
+                                x2={points[0].x} y2={points[0].y}
+                                stroke="#3fb8a0"
+                                strokeWidth="2"
+                                strokeDasharray="6 3"
+                                initial={{ pathLength: 0, opacity: 0 }}
+                                animate={{ pathLength: 1, opacity: 0.9 }}
+                                transition={{ duration: 0.4, delay: 0.15 }}
+                            />
                             {(() => {
-                                const p1 = getPinnedPos(points[0]);
-                                const p4 = getPinnedPos(points[3]);
-                                const dist = distBetween(points[0], points[3]);
-                                const midX = (p1.x + p4.x) / 2;
-                                const midY = (p1.y + p4.y) / 2;
+                                const dist = distBetween(points[3], points[0]);
+                                const midX = (points[3].x + points[0].x) / 2;
+                                const midY = (points[3].y + points[0].y) / 2;
                                 return (
                                     <>
-                                        <motion.line
-                                            x1={p4.x} y1={p4.y}
-                                            x2={p1.x} y2={p1.y}
-                                            stroke="#3fb8a0"
-                                            strokeWidth="2"
-                                            strokeDasharray="6 3"
-                                            initial={{ pathLength: 0, opacity: 0 }}
-                                            animate={{ pathLength: 1, opacity: 0.9 }}
-                                            transition={{ duration: 0.4, delay: 0.15 }}
-                                        />
                                         <rect x={midX - 28} y={midY - 12} width="56" height="18" rx="4" fill="#121e2a" fillOpacity="0.85" stroke="#3fb8a0" strokeWidth="0.5" />
                                         <text x={midX} y={midY + 2} textAnchor="middle" fill="#3fb8a0" fontSize="10" fontFamily="'JetBrains Mono', monospace">
                                             {formatDist(dist, pxPerMm, unit)}
@@ -478,8 +447,8 @@ export default function ARScan() {
                     {/* Preview line from last point to reticle */}
                     {points.length > 0 && points.length < 4 && (
                         <line
-                            x1={getPinnedPos(points[points.length - 1]).x}
-                            y1={getPinnedPos(points[points.length - 1]).y}
+                            x1={points[points.length - 1].x}
+                            y1={points[points.length - 1].y}
                             x2={reticlePos.x}
                             y2={reticlePos.y}
                             stroke="#3fb8a0"
@@ -489,10 +458,10 @@ export default function ARScan() {
                         />
                     )}
 
-                    {/* Calibration line — pinned */}
+                    {/* Calibration line */}
                     {calibPoints.length === 1 && (
                         <line
-                            x1={getPinnedPos(calibPoints[0]).x} y1={getPinnedPos(calibPoints[0]).y}
+                            x1={calibPoints[0].x} y1={calibPoints[0].y}
                             x2={reticlePos.x} y2={reticlePos.y}
                             stroke="#e8a838" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.6"
                         />
@@ -507,19 +476,6 @@ export default function ARScan() {
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
             >
-                {/* SENSOR ACCESS PROMPT (iOS special) */}
-                {!sensorActive && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function' && (
-                    <div className="absolute inset-x-0 -top-16 px-4 py-2 pointer-events-none">
-                        <motion.button
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            onClick={requestSensors}
-                            className="w-full pointer-events-auto bg-amber px-4 py-2 rounded-lg text-ocean-950 text-sm font-bold shadow-xl flex items-center justify-center gap-2"
-                        >
-                            <span>🔒 Enable 3D Pinning (Motion Sensors)</span>
-                        </motion.button>
-                    </div>
-                )}
                 {/* CALIBRATION MODE */}
                 {calibrating ? (
                     <div className="text-center">

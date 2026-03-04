@@ -34,10 +34,10 @@ export const circlePop = {
         scale: 1,
         opacity: 1,
         transition: {
-            delay: i * 0.012,
+            delay: i * 0.001,
             type: 'spring',
-            stiffness: 500,
-            damping: 25,
+            stiffness: 800,
+            damping: 30,
         },
     }),
 };
