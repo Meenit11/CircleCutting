@@ -41,12 +41,12 @@ export default function Home() {
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setScreen('arScan')}
-                    style={{ boxShadow: '0 0 0 rgba(176, 145, 106, 0)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(176, 145, 106, 0.1)'}
-                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 0 rgba(176, 145, 106, 0)'}
+                    style={{ boxShadow: '0 0 0 rgba(63, 184, 160, 0)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(63, 184, 160, 0.12)'}
+                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 0 rgba(63, 184, 160, 0)'}
                 >
                     <div className="w-12 h-12 rounded-lg bg-ocean-700 flex items-center justify-center mb-4 group-hover:bg-ocean-600 transition-colors">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b0916a" strokeWidth="1.5">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3fb8a0" strokeWidth="1.5">
                             <path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5" />
                             <circle cx="12" cy="12" r="3" />
                             <path d="M12 5v2M12 17v2M5 12h2M17 12h2" opacity="0.5" />
@@ -63,12 +63,12 @@ export default function Home() {
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setScreen('manualEntry')}
-                    style={{ boxShadow: '0 0 0 rgba(232, 114, 58, 0)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(232, 114, 58, 0.1)'}
-                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 0 rgba(232, 114, 58, 0)'}
+                    style={{ boxShadow: '0 0 0 rgba(224, 90, 48, 0)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(224, 90, 48, 0.12)'}
+                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 0 rgba(224, 90, 48, 0)'}
                 >
                     <div className="w-12 h-12 rounded-lg bg-ocean-700 flex items-center justify-center mb-4 group-hover:bg-ocean-600 transition-colors">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e8723a" strokeWidth="1.5">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e05a30" strokeWidth="1.5">
                             <rect x="3" y="3" width="18" height="18" rx="1" />
                             <path d="M3 8h3M3 12h2M3 16h3M3 20h2" opacity="0.5" />
                             <path d="M8 3v3M12 3v2M16 3v3M20 3v2" opacity="0.5" />

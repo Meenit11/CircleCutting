@@ -43,7 +43,7 @@ export function formatDate(isoString) {
 }
 
 export function getEfficiencyColor(pct) {
-    if (pct < 50) return '#d45050'; // muted red
-    if (pct < 75) return '#d4a03c'; // warm amber
-    return '#6dba7d'; // sage green
+    if (pct < 50) return '#d45050'; // danger red
+    if (pct < 75) return '#e8a838'; // brass amber
+    return '#4ecdc4'; // seafoam
 }

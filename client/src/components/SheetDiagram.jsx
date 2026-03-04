@@ -92,17 +92,17 @@ export default function SheetDiagram({ width: containerWidth = 500, height: cont
                         <rect
                             x={0} y={0}
                             width={svgW} height={svgH}
-                            fill="rgba(28, 28, 33, 0.6)"
-                            stroke="#b0916a"
+                            fill="rgba(18, 30, 42, 0.6)"
+                            stroke="#3fb8a0"
                             strokeWidth={1.5}
                             rx={2}
                         />
 
                         {/* Corner brackets */}
-                        <path d={`M 0,12 L 0,0 L 12,0`} fill="none" stroke="#b0916a" strokeWidth={2} opacity={0.6} />
-                        <path d={`M ${svgW - 12},0 L ${svgW},0 L ${svgW},12`} fill="none" stroke="#b0916a" strokeWidth={2} opacity={0.6} />
-                        <path d={`M ${svgW},${svgH - 12} L ${svgW},${svgH} L ${svgW - 12},${svgH}`} fill="none" stroke="#b0916a" strokeWidth={2} opacity={0.6} />
-                        <path d={`M 12,${svgH} L 0,${svgH} L 0,${svgH - 12}`} fill="none" stroke="#b0916a" strokeWidth={2} opacity={0.6} />
+                        <path d={`M 0,12 L 0,0 L 12,0`} fill="none" stroke="#3fb8a0" strokeWidth={2} opacity={0.6} />
+                        <path d={`M ${svgW - 12},0 L ${svgW},0 L ${svgW},12`} fill="none" stroke="#3fb8a0" strokeWidth={2} opacity={0.6} />
+                        <path d={`M ${svgW},${svgH - 12} L ${svgW},${svgH} L ${svgW - 12},${svgH}`} fill="none" stroke="#3fb8a0" strokeWidth={2} opacity={0.6} />
+                        <path d={`M 12,${svgH} L 0,${svgH} L 0,${svgH - 12}`} fill="none" stroke="#3fb8a0" strokeWidth={2} opacity={0.6} />
 
                         {/* Dimension labels */}
                         <text x={svgW / 2} y={-8} textAnchor="middle" fill="#94a3b8" fontSize={11} fontFamily="'JetBrains Mono', monospace">
@@ -138,8 +138,8 @@ export default function SheetDiagram({ width: containerWidth = 500, height: cont
                                 cx={c.x * scale}
                                 cy={c.y * scale}
                                 r={c.r * scale}
-                                fill="rgba(232, 114, 58, 0.15)"
-                                stroke="#e8723a"
+                                fill="rgba(224, 90, 48, 0.15)"
+                                stroke="#e05a30"
                                 strokeWidth={1}
                                 custom={i}
                                 variants={circlePop}
@@ -158,8 +158,8 @@ export default function SheetDiagram({ width: containerWidth = 500, height: cont
                                 cx={c.x * scale}
                                 cy={c.y * scale}
                                 r={c.r * scale}
-                                fill="rgba(109, 186, 125, 0.2)"
-                                stroke="#6dba7d"
+                                fill="rgba(78, 205, 196, 0.18)"
+                                stroke="#4ecdc4"
                                 strokeWidth={1}
                                 initial={{ scale: 0, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
@@ -175,7 +175,7 @@ export default function SheetDiagram({ width: containerWidth = 500, height: cont
                                     x={circles[tooltip].x * scale - 22}
                                     y={circles[tooltip].y * scale - 28}
                                     width={44} height={18} rx={4}
-                                    fill="#1c1c21" stroke="#b0916a" strokeWidth={0.5}
+                                    fill="#121e2a" stroke="#3fb8a0" strokeWidth={0.5}
                                 />
                                 <text
                                     x={circles[tooltip].x * scale}

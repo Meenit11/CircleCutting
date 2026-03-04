@@ -74,7 +74,7 @@ export default function CircleConfig() {
             >
                 <div className="bracket-card px-4 py-2.5 flex items-center gap-3">
                     <div className="w-8 h-6 border border-teal/40 rounded-sm flex items-center justify-center">
-                        <svg width="16" height="12" viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10" fill="none" stroke="#b0916a" strokeWidth="0.8" rx="0.5" /></svg>
+                        <svg width="16" height="12" viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10" fill="none" stroke="#3fb8a0" strokeWidth="0.8" rx="0.5" /></svg>
                     </div>
                     <div className="mono-num text-sm text-text-secondary">
                         {sheet.length}

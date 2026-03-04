@@ -1,29 +1,30 @@
 @import "tailwindcss";
 
-/* ── Design Tokens ── */
+/* ── Design Tokens: Ship's Bridge ── */
 @theme {
-  --color-ocean-950: #111113;
-  --color-ocean-900: #19191d;
-  --color-ocean-800: #222228;
-  --color-ocean-700: #2c2c34;
-  --color-ocean-600: #38383f;
-  --color-gunmetal: #1c1c21;
-  --color-slate-panel: #232329;
-  --color-steel: #3a3a42;
-  --color-buoy: #e8723a;
-  --color-buoy-glow: rgba(232, 114, 58, 0.2);
-  --color-teal: #b0916a;
-  --color-teal-glow: rgba(176, 145, 106, 0.15);
-  --color-seafoam: #6dba7d;
-  --color-seafoam-glow: rgba(109, 186, 125, 0.15);
-  --color-amber: #d4a03c;
-  --color-amber-glow: rgba(212, 160, 60, 0.12);
+  --color-ocean-950: #0a1520;
+  --color-ocean-900: #0f1e2e;
+  --color-ocean-800: #162a3d;
+  --color-ocean-700: #1d3650;
+  --color-ocean-600: #264463;
+  --color-gunmetal: #121e2a;
+  --color-slate-panel: #18293a;
+  --color-steel: #2a3f54;
+  --color-buoy: #e05a30;
+  --color-buoy-glow: rgba(224, 90, 48, 0.2);
+  --color-teal: #3fb8a0;
+  --color-teal-glow: rgba(63, 184, 160, 0.15);
+  --color-seafoam: #4ecdc4;
+  --color-seafoam-glow: rgba(78, 205, 196, 0.12);
+  --color-amber: #e8a838;
+  --color-amber-glow: rgba(232, 168, 56, 0.12);
+  --color-brass: #c9a84c;
   --color-danger: #d45050;
-  --color-text-primary: #e8e4df;
-  --color-text-secondary: #9a9590;
-  --color-text-dim: #6b6560;
-  --color-border: rgba(255, 255, 255, 0.07);
-  --color-border-bright: rgba(255, 255, 255, 0.14);
+  --color-text-primary: #e8ebe8;
+  --color-text-secondary: #8a9baa;
+  --color-text-dim: #5a6e80;
+  --color-border: rgba(56, 136, 180, 0.12);
+  --color-border-bright: rgba(56, 136, 180, 0.22);
 
   --font-sans: 'DM Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -46,18 +47,18 @@ body,
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-ocean-950);
+  background: linear-gradient(165deg, #0a1520 0%, #0d1a28 40%, #0f1e2e 100%);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
 }
 
-/* ── Blueprint Grid Background ── */
+/* ── Compass Grid Background ── */
 .blueprint-bg {
   background-image:
-    linear-gradient(rgba(176, 145, 106, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(176, 145, 106, 0.025) 1px, transparent 1px);
+    linear-gradient(rgba(63, 184, 160, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(63, 184, 160, 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -72,15 +73,16 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 9999;
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
-/* ── Corner Bracket Card ── */
+/* ── Instrument Panel Card ── */
 .bracket-card {
   position: relative;
   border: 1px solid var(--color-border);
-  background: var(--color-gunmetal);
+  background: linear-gradient(180deg, var(--color-gunmetal) 0%, rgba(15, 30, 46, 0.95) 100%);
   border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .bracket-card::before,
@@ -89,8 +91,8 @@ body {
   position: absolute;
   width: 10px;
   height: 10px;
-  border-color: var(--color-teal);
-  opacity: 0.35;
+  border-color: var(--color-brass);
+  opacity: 0.45;
 }
 
 .bracket-card::before {
@@ -144,7 +146,7 @@ input[type="number"] {
 @keyframes sonar-ping {
   0% {
     transform: scale(0.8);
-    opacity: 0.4;
+    opacity: 0.5;
   }
 
   100% {
@@ -166,7 +168,7 @@ input[type="number"] {
   }
 
   50% {
-    opacity: 0.6;
+    opacity: 0.7;
   }
 }
 

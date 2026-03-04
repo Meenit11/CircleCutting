@@ -1,24 +1,51 @@
-import { motion } from 'framer-motion';
-import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/store';
 import { pageTransition } from '../animations/animations';
 
+const UNITS = [
+    { key: 'mm', label: 'mm', factor: 1 },
+    { key: 'cm', label: 'cm', factor: 0.1 },
+    { key: 'in', label: 'in', factor: 0.03937 },
+];
+
+function formatDist(px, pxPerMm, unitObj) {
+    if (!pxPerMm) return '—';
+    const mm = px / pxPerMm;
+    return (mm * unitObj.factor).toFixed(1) + unitObj.label;
+}
+
+function polyArea(pts) {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+    }
+    return Math.abs(a) / 2;
+}
+
 export default function ARScan() {
-    const sheet = useStore((s) => s.sheet);
     const setScreen = useStore((s) => s.setScreen);
     const setSheet = useStore((s) => s.setSheet);
-    const [corners, setCorners] = useState([]);
+    const [points, setPoints] = useState([]);
     const [showInstructions, setShowInstructions] = useState(true);
-    const [detectedDims, setDetectedDims] = useState(null);
-    const [polygonArea, setPolygonArea] = useState(null);
-    const [editLength, setEditLength] = useState('');
-    const [editWidth, setEditWidth] = useState('');
-    const [shape, setShape] = useState('rectangle');
+    const [unit, setUnit] = useState(UNITS[0]);
     const [cameraError, setCameraError] = useState(null);
     const [cameraReady, setCameraReady] = useState(false);
+    const [detectedDims, setDetectedDims] = useState(null);
+    const [editLength, setEditLength] = useState('');
+    const [editWidth, setEditWidth] = useState('');
+    const [edgeMargin, setEdgeMargin] = useState('5');
+    const [kerf, setKerf] = useState('2');
+    const [shape, setShape] = useState('rectangle');
+    const [calibrating, setCalibrating] = useState(false);
+    const [calibPoints, setCalibPoints] = useState([]);
+    const [calibRefMm, setCalibRefMm] = useState('150');
+    const [pxPerMm, setPxPerMm] = useState(null);
     const videoRef = useRef(null);
     const streamRef = useRef(null);
     const containerRef = useRef(null);
+    const [reticlePos, setReticlePos] = useState({ x: 0, y: 0 });
 
     // Start camera
     useEffect(() => {
@@ -26,7 +53,7 @@ export default function ARScan() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: { ideal: 'environment' }, // prefer back camera
+                        facingMode: { ideal: 'environment' },
                         width: { ideal: 1280 },
                         height: { ideal: 720 },
                     },
@@ -51,10 +78,7 @@ export default function ARScan() {
                 }
             }
         }
-
         startCamera();
-
-        // Cleanup: stop camera when leaving
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
@@ -63,133 +87,105 @@ export default function ARScan() {
         };
     }, []);
 
+    // Set reticle to center when container is available
     useEffect(() => {
-        const t = setTimeout(() => setShowInstructions(false), 4000);
+        if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            setReticlePos({ x: rect.width / 2, y: rect.height / 2 });
+        }
+    }, [cameraReady]);
+
+    useEffect(() => {
+        const t = setTimeout(() => setShowInstructions(false), 5000);
         return () => clearTimeout(t);
     }, []);
 
-    const [unit, setUnit] = useState('mm'); // mm | cm | in
-    const SCALE_PX_TO_MM = 2.5;
+    // Calculate polygon dimensions when 4 points placed
+    useEffect(() => {
+        if (points.length === 4 && pxPerMm) {
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const len = Math.round((maxX - minX) / pxPerMm);
+            const wid = Math.round((maxY - minY) / pxPerMm);
+            setDetectedDims({ length: len, width: wid });
+            setEditLength(len.toString());
+            setEditWidth(wid.toString());
+        } else if (points.length === 4 && !pxPerMm) {
+            // Fallback: rough estimate using 2.5px/mm ratio
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const len = Math.round((maxX - minX) * 0.4);
+            const wid = Math.round((maxY - minY) * 0.4);
+            setDetectedDims({ length: len, width: wid });
+            setEditLength(len.toString());
+            setEditWidth(wid.toString());
+        }
+    }, [points, pxPerMm]);
 
-    const convertLength = (mm) => {
-        if (unit === 'cm') return mm / 10;
-        if (unit === 'in') return mm / 25.4;
-        return mm;
-    };
-
-    const formatLength = (mm) => {
-        const v = convertLength(mm);
-        if (unit === 'mm') return Math.round(v).toString();
-        return v.toFixed(1);
-    };
-
-    const computePolygonMetrics = (points) => {
-        if (points.length < 4) {
-            setDetectedDims(null);
-            setPolygonArea(null);
-            setEditLength('');
-            setEditWidth('');
+    const handlePlacePoint = useCallback(() => {
+        if (calibrating) {
+            if (calibPoints.length < 2) {
+                const newPts = [...calibPoints, { ...reticlePos }];
+                setCalibPoints(newPts);
+                if (newPts.length === 2) {
+                    const dx = newPts[1].x - newPts[0].x;
+                    const dy = newPts[1].y - newPts[0].y;
+                    const pxDist = Math.sqrt(dx * dx + dy * dy);
+                    const refMm = Number(calibRefMm) || 150;
+                    setPxPerMm(pxDist / refMm);
+                    setCalibrating(false);
+                    setCalibPoints([]);
+                }
+            }
             return;
         }
+        if (points.length >= 4) return;
+        setPoints(prev => [...prev, { ...reticlePos }]);
+    }, [calibrating, calibPoints, reticlePos, calibRefMm, points.length]);
 
-        // Edge lengths (4 sides) in pixels
-        const edgesPx = points.map((p, i) => {
-            const next = points[(i + 1) % points.length];
-            const dx = next.x - p.x;
-            const dy = next.y - p.y;
-            return Math.sqrt(dx * dx + dy * dy);
-        });
-
-        const edgesMm = edgesPx.map((d) => d * SCALE_PX_TO_MM);
-        const lengthMm = Math.round(Math.max(...edgesMm));
-        const widthMm = Math.round(Math.min(...edgesMm));
-
-        // Polygon area via shoelace formula (convert to mm²)
-        let sum = 0;
-        for (let i = 0; i < points.length; i++) {
-            const j = (i + 1) % points.length;
-            sum += points[i].x * points[j].y - points[j].x * points[i].y;
+    const handleUndo = () => {
+        if (calibrating && calibPoints.length > 0) {
+            setCalibPoints(prev => prev.slice(0, -1));
+            return;
         }
-        const areaPx2 = Math.abs(sum) / 2;
-        const areaMm2 = areaPx2 * SCALE_PX_TO_MM * SCALE_PX_TO_MM;
-
-        setDetectedDims({ length: lengthMm, width: widthMm });
-        setPolygonArea(Math.round(areaMm2));
-        setEditLength(lengthMm.toString());
-        setEditWidth(widthMm.toString());
-    };
-
-    const addCorner = (x, y) => {
-        if (corners.length >= 4) return;
-        const newCorners = [...corners, { x, y }];
-        setCorners(newCorners);
-
-        if (newCorners.length === 4) {
-            computePolygonMetrics(newCorners);
-        } else {
+        if (points.length > 0) {
+            setPoints(prev => prev.slice(0, -1));
             setDetectedDims(null);
-            setPolygonArea(null);
-            setEditLength('');
-            setEditWidth('');
         }
     };
 
-    const handleTap = (e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        addCorner(x, y);
-    };
-
-    const handleAddFromReticle = (e) => {
-        e.stopPropagation();
-        if (!containerRef.current || corners.length >= 4) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = rect.width / 2;
-        const y = rect.height / 2;
-        addCorner(x, y);
-    };
-
-    const handleUndo = (e) => {
-        e.stopPropagation();
-        if (!corners.length) return;
-        const updated = corners.slice(0, -1);
-        setCorners(updated);
-        if (updated.length === 4) {
-            computePolygonMetrics(updated);
-        } else {
-            setDetectedDims(null);
-            setPolygonArea(null);
-            setEditLength('');
-            setEditWidth('');
-        }
-    };
-
-    const handleClear = (e) => {
-        e.stopPropagation();
-        setCorners([]);
+    const handleClear = () => {
+        setPoints([]);
         setDetectedDims(null);
-        setPolygonArea(null);
-        setEditLength('');
-        setEditWidth('');
+        setCalibPoints([]);
     };
 
     const handleConfirm = () => {
         const l = Number(editLength);
         const w = shape === 'square' ? l : Number(editWidth);
         if (l > 0 && w > 0) {
-            setSheet({ length: l.toString(), width: w.toString(), shape });
+            setSheet({
+                length: l.toString(),
+                width: w.toString(),
+                shape,
+                edgeMargin: Number(edgeMargin) || 5,
+                kerf: Number(kerf) || 2,
+            });
+            if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
             setScreen('circleConfig');
         }
     };
 
     const handleGoManual = () => {
-        // Stop camera before navigating
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-        }
+        if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
         setScreen('manualEntry');
     };
+
+    const distBetween = (a, b) => Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
 
     return (
         <motion.div
@@ -210,18 +206,27 @@ export default function ARScan() {
                 >
                     ← Back
                 </button>
-                <h2 className="text-sm font-medium text-text-primary">AR Scan</h2>
+
+                {/* Unit toggle */}
+                <div className="flex bg-ocean-800 rounded overflow-hidden border border-border">
+                    {UNITS.map(u => (
+                        <button
+                            key={u.key}
+                            className={`px-2.5 py-1 text-xs mono-num transition-all ${unit.key === u.key ? 'bg-teal/20 text-teal' : 'text-text-dim hover:text-text-secondary'}`}
+                            onClick={() => setUnit(u)}
+                        >
+                            {u.label}
+                        </button>
+                    ))}
+                </div>
+
                 <div className="flex items-center gap-1 bg-amber/15 text-amber text-xs px-2 py-1 rounded">
                     ⚠️ Estimate
                 </div>
             </div>
 
             {/* Camera area */}
-            <div
-                className="flex-1 relative bg-ocean-950 cursor-crosshair overflow-hidden"
-                ref={containerRef}
-                onClick={handleTap}
-            >
+            <div className="flex-1 relative bg-ocean-950 overflow-hidden" ref={containerRef}>
                 {/* Live camera feed */}
                 <video
                     ref={videoRef}
@@ -229,10 +234,9 @@ export default function ARScan() {
                     playsInline
                     muted
                     className="absolute inset-0 w-full h-full object-cover"
-                    style={{ transform: 'scaleX(1)' }}
                 />
 
-                {/* Dark overlay if no camera */}
+                {/* Loading spinner */}
                 {!cameraReady && !cameraError && (
                     <div className="absolute inset-0 flex items-center justify-center bg-ocean-950">
                         <motion.div
@@ -259,63 +263,91 @@ export default function ARScan() {
                     </div>
                 )}
 
-                {/* Semi-transparent overlay for better UI visibility */}
-                {cameraReady && (
-                    <div className="absolute inset-0 bg-ocean-950/20 pointer-events-none" />
-                )}
+                {/* Semi-transparent overlay */}
+                {cameraReady && <div className="absolute inset-0 bg-ocean-950/15 pointer-events-none" />}
+                <div className="absolute inset-0 blueprint-bg opacity-15 pointer-events-none" />
 
-                {/* Grid overlay */}
-                <div className="absolute inset-0 blueprint-bg opacity-20 pointer-events-none" />
-
-                {/* Center reticle */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-8 h-8 rounded-full border border-teal/70 bg-black/10 relative">
-                        <div className="absolute inset-1 rounded-full border border-teal/40" />
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-teal" />
-                    </div>
-                </div>
-
-                {/* Scan line animation */}
-                {cameraReady && corners.length < 4 && (
+                {/* Scan line */}
+                {cameraReady && points.length < 4 && !calibrating && (
                     <motion.div
-                        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal to-transparent opacity-40 pointer-events-none"
+                        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal to-transparent opacity-30 pointer-events-none"
                         animate={{ top: ['10%', '90%', '10%'] }}
                         transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
                     />
                 )}
 
-                {/* Instructions */}
-                {showInstructions && corners.length === 0 && (
-                    <motion.div
-                        className="absolute inset-x-0 top-1/4 flex justify-center pointer-events-none z-10"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
+                {/* CENTER RETICLE — always visible */}
+                {cameraReady && points.length < 4 && (
+                    <div
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: reticlePos.x - 24, top: reticlePos.y - 24 }}
                     >
-                        <div className="bg-gunmetal/90 backdrop-blur-sm rounded-lg px-6 py-4 max-w-xs text-center border border-border pointer-events-auto"
-                            onClick={(e) => { e.stopPropagation(); setShowInstructions(false); }}>
-                            <p className="text-sm text-text-primary mb-1">Point camera at your sheet on a flat surface</p>
-                            <p className="text-xs text-text-secondary">Use the center reticle or tap to drop points around the sheet</p>
-                        </div>
-                    </motion.div>
+                        <svg width="48" height="48" viewBox="0 0 48 48">
+                            {/* Outer ring */}
+                            <circle cx="24" cy="24" r="20" fill="none" stroke="#3fb8a0" strokeWidth="1" opacity="0.3" />
+                            {/* Cross hairs */}
+                            <line x1="24" y1="4" x2="24" y2="16" stroke="#3fb8a0" strokeWidth="1.5" opacity="0.6" />
+                            <line x1="24" y1="32" x2="24" y2="44" stroke="#3fb8a0" strokeWidth="1.5" opacity="0.6" />
+                            <line x1="4" y1="24" x2="16" y2="24" stroke="#3fb8a0" strokeWidth="1.5" opacity="0.6" />
+                            <line x1="32" y1="24" x2="44" y2="24" stroke="#3fb8a0" strokeWidth="1.5" opacity="0.6" />
+                            {/* Center dot */}
+                            <circle cx="24" cy="24" r="3" fill="#3fb8a0" opacity="0.9" />
+                        </svg>
+                        {/* Pulsing glow ring */}
+                        <motion.div
+                            className="absolute rounded-full border border-teal pointer-events-none"
+                            style={{ top: 4, left: 4, width: 40, height: 40 }}
+                            animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                    </div>
                 )}
 
-                {/* Placed corners with brackets */}
-                {corners.map((c, i) => (
+                {/* Calibration reticle mode */}
+                {calibrating && cameraReady && (
+                    <div
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: reticlePos.x - 24, top: reticlePos.y - 24 }}
+                    >
+                        <svg width="48" height="48" viewBox="0 0 48 48">
+                            <circle cx="24" cy="24" r="20" fill="none" stroke="#e8a838" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.6" />
+                            <circle cx="24" cy="24" r="3" fill="#e8a838" />
+                        </svg>
+                    </div>
+                )}
+
+                {/* Instructions */}
+                <AnimatePresence>
+                    {showInstructions && points.length === 0 && !calibrating && (
+                        <motion.div
+                            className="absolute inset-x-0 top-1/4 flex justify-center pointer-events-none z-10"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                        >
+                            <div className="bg-gunmetal/90 backdrop-blur-sm rounded-lg px-6 py-4 max-w-xs text-center border border-border pointer-events-auto"
+                                onClick={(e) => { e.stopPropagation(); setShowInstructions(false); }}>
+                                <p className="text-sm text-text-primary mb-1">Aim the reticle at a sheet corner</p>
+                                <p className="text-xs text-text-secondary">Press "Place Point" to mark each corner</p>
+                                <p className="text-xs text-text-dim mt-2">💡 Calibrate first for better accuracy</p>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Placed points */}
+                {points.map((p, i) => (
                     <motion.div
                         key={i}
-                        className="absolute pointer-events-none"
-                        style={{ left: c.x - 14, top: c.y - 14 }}
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: p.x - 14, top: p.y - 14 }}
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 20 }}
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28">
-                            <path d="M2,9 L2,2 L9,2" fill="none" stroke="#b0916a" strokeWidth="2.5" strokeLinecap="round" />
-                            <path d="M19,2 L26,2 L26,9" fill="none" stroke="#b0916a" strokeWidth="2.5" strokeLinecap="round" opacity="0.3" />
-                            <path d="M26,19 L26,26 L19,26" fill="none" stroke="#b0916a" strokeWidth="2.5" strokeLinecap="round" opacity="0.3" />
-                            <path d="M9,26 L2,26 L2,19" fill="none" stroke="#b0916a" strokeWidth="2.5" strokeLinecap="round" opacity="0.3" />
-                            <circle cx="14" cy="14" r="2.5" fill="#b0916a" />
+                            <circle cx="14" cy="14" r="10" fill="none" stroke="#3fb8a0" strokeWidth="2" />
+                            <circle cx="14" cy="14" r="3" fill="#3fb8a0" />
                         </svg>
                         {/* Ring pulse */}
                         <motion.div
@@ -325,176 +357,221 @@ export default function ARScan() {
                             animate={{ scale: 2.5, opacity: 0 }}
                             transition={{ duration: 0.8 }}
                         />
-                        {/* Corner label */}
+                        {/* Point label */}
                         <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs mono-num text-teal bg-gunmetal/80 px-1.5 py-0.5 rounded">
                             {i + 1}
                         </span>
                     </motion.div>
                 ))}
 
-                {/* Lines between corners and live preview to reticle */}
-                {corners.length >= 1 && (
-                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                        {corners.length >= 2 &&
-                            corners.map((c, i) => {
-                                if (i === 0) return null;
-                                const prev = corners[i - 1];
-                                return (
-                                    <motion.line
-                                        key={i}
-                                        x1={prev.x} y1={prev.y}
-                                        x2={c.x} y2={c.y}
-                                        stroke="#b0916a"
-                                        strokeWidth="2"
-                                        strokeDasharray="6 3"
-                                        initial={{ pathLength: 0, opacity: 0 }}
-                                        animate={{ pathLength: 1, opacity: 0.9 }}
-                                        transition={{ duration: 0.4 }}
-                                    />
-                                );
-                            })}
-                        {corners.length === 4 && (
+                {/* Calibration points */}
+                {calibPoints.map((p, i) => (
+                    <motion.div
+                        key={`cal-${i}`}
+                        className="absolute pointer-events-none z-10"
+                        style={{ left: p.x - 8, top: p.y - 8 }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                    >
+                        <svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="#e8a838" strokeWidth="2" /><circle cx="8" cy="8" r="2" fill="#e8a838" /></svg>
+                    </motion.div>
+                ))}
+
+                {/* Lines between points + distance labels */}
+                <svg className="absolute inset-0 w-full h-full pointer-events-none z-5">
+                    {/* Lines between placed points */}
+                    {points.map((p, i) => {
+                        if (i === 0) return null;
+                        const prev = points[i - 1];
+                        const dist = distBetween(prev, p);
+                        const midX = (prev.x + p.x) / 2;
+                        const midY = (prev.y + p.y) / 2;
+                        return (
+                            <g key={`line-${i}`}>
+                                <motion.line
+                                    x1={prev.x} y1={prev.y}
+                                    x2={p.x} y2={p.y}
+                                    stroke="#3fb8a0"
+                                    strokeWidth="2"
+                                    strokeDasharray="6 3"
+                                    initial={{ pathLength: 0, opacity: 0 }}
+                                    animate={{ pathLength: 1, opacity: 0.9 }}
+                                    transition={{ duration: 0.4 }}
+                                />
+                                <rect x={midX - 28} y={midY - 12} width="56" height="18" rx="4" fill="#121e2a" fillOpacity="0.85" stroke="#3fb8a0" strokeWidth="0.5" />
+                                <text x={midX} y={midY + 2} textAnchor="middle" fill="#3fb8a0" fontSize="10" fontFamily="'JetBrains Mono', monospace">
+                                    {formatDist(dist, pxPerMm, unit)}
+                                </text>
+                            </g>
+                        );
+                    })}
+
+                    {/* Closing line (4→1) */}
+                    {points.length === 4 && (
+                        <g>
                             <motion.line
-                                x1={corners[3].x} y1={corners[3].y}
-                                x2={corners[0].x} y2={corners[0].y}
-                                stroke="#b0916a"
+                                x1={points[3].x} y1={points[3].y}
+                                x2={points[0].x} y2={points[0].y}
+                                stroke="#3fb8a0"
                                 strokeWidth="2"
                                 strokeDasharray="6 3"
                                 initial={{ pathLength: 0, opacity: 0 }}
                                 animate={{ pathLength: 1, opacity: 0.9 }}
                                 transition={{ duration: 0.4, delay: 0.15 }}
                             />
-                        )}
+                            {(() => {
+                                const dist = distBetween(points[3], points[0]);
+                                const midX = (points[3].x + points[0].x) / 2;
+                                const midY = (points[3].y + points[0].y) / 2;
+                                return (
+                                    <>
+                                        <rect x={midX - 28} y={midY - 12} width="56" height="18" rx="4" fill="#121e2a" fillOpacity="0.85" stroke="#3fb8a0" strokeWidth="0.5" />
+                                        <text x={midX} y={midY + 2} textAnchor="middle" fill="#3fb8a0" fontSize="10" fontFamily="'JetBrains Mono', monospace">
+                                            {formatDist(dist, pxPerMm, unit)}
+                                        </text>
+                                    </>
+                                );
+                            })()}
+                        </g>
+                    )}
 
-                        {/* Live segment from last point to reticle while placing */}
-                        {containerRef.current && corners.length > 0 && corners.length < 4 && (() => {
-                            const rect = containerRef.current.getBoundingClientRect();
-                            const cx = rect.width / 2;
-                            const cy = rect.height / 2;
-                            const last = corners[corners.length - 1];
-                            const dx = cx - last.x;
-                            const dy = cy - last.y;
-                            const liveMm = Math.sqrt(dx * dx + dy * dy) * SCALE_PX_TO_MM;
-                            const liveDisplay = formatLength(liveMm);
-                            return (
-                                <>
-                                    <motion.line
-                                        x1={last.x}
-                                        y1={last.y}
-                                        x2={cx}
-                                        y2={cy}
-                                        stroke="#38bdf8"
-                                        strokeWidth="2"
-                                        strokeDasharray="4 4"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 0.9 }}
-                                        transition={{ duration: 0.2 }}
-                                    />
-                                    <text
-                                        x={(last.x + cx) / 2}
-                                        y={(last.y + cy) / 2 - 8}
-                                        textAnchor="middle"
-                                        fill="#38bdf8"
-                                        fontSize="11"
-                                        fontFamily="'JetBrains Mono', monospace"
-                                    >
-                                        ~{liveDisplay}{unit}
-                                    </text>
-                                </>
-                            );
-                        })()}
+                    {/* Preview line from last point to reticle */}
+                    {points.length > 0 && points.length < 4 && (
+                        <line
+                            x1={points[points.length - 1].x}
+                            y1={points[points.length - 1].y}
+                            x2={reticlePos.x}
+                            y2={reticlePos.y}
+                            stroke="#3fb8a0"
+                            strokeWidth="1"
+                            strokeDasharray="4 4"
+                            opacity="0.4"
+                        />
+                    )}
 
-                        {/* Dimension labels on lines */}
-                        {corners.length === 4 && detectedDims && (
-                            <>
-                                <text
-                                    x={(corners[0].x + corners[1].x) / 2}
-                                    y={(corners[0].y + corners[1].y) / 2 - 10}
-                                    textAnchor="middle"
-                                    fill="#b0916a"
-                                    fontSize="12"
-                                    fontFamily="'JetBrains Mono', monospace"
-                                    className="drop-shadow-lg"
-                                >
-                                    ~{formatLength(detectedDims.length)}{unit}
-                                </text>
-                                <text
-                                    x={(corners[0].x + corners[3].x) / 2 - 10}
-                                    y={(corners[0].y + corners[3].y) / 2}
-                                    textAnchor="end"
-                                    fill="#b0916a"
-                                    fontSize="12"
-                                    fontFamily="'JetBrains Mono', monospace"
-                                    className="drop-shadow-lg"
-                                >
-                                    ~{formatLength(detectedDims.width)}{unit}
-                                </text>
-                            </>
-                        )}
-                    </svg>
-                )}
+                    {/* Calibration line */}
+                    {calibPoints.length === 1 && (
+                        <line
+                            x1={calibPoints[0].x} y1={calibPoints[0].y}
+                            x2={reticlePos.x} y2={reticlePos.y}
+                            stroke="#e8a838" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.6"
+                        />
+                    )}
+                </svg>
             </div>
 
             {/* Bottom panel */}
             <motion.div
-                className="bg-gunmetal/95 backdrop-blur-md border-t border-border px-4 py-4 flex-shrink-0 z-20"
+                className="bg-gunmetal/95 backdrop-blur-md border-t border-border px-4 py-3 flex-shrink-0 z-20"
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
             >
-                {corners.length < 4 ? (
+                {/* CALIBRATION MODE */}
+                {calibrating ? (
                     <div className="text-center">
-                        <div className="mono-num text-lg text-teal mb-1">
-                            Drop point {corners.length + 1} of 4
+                        <div className="mono-num text-sm text-amber mb-2">
+                            📏 Calibration: Aim reticle at {calibPoints.length === 0 ? 'one end' : 'the other end'} of a known object
                         </div>
-                        <div className="flex justify-center gap-2 mt-2">
-                            {[0, 1, 2, 3].map(i => (
-                                <div
-                                    key={i}
-                                    className={`w-3 h-3 rounded-full transition-all ${i < corners.length ? 'bg-teal scale-110' : 'bg-steel'
-                                        }`}
-                                />
-                            ))}
+                        <div className="flex items-center justify-center gap-2 mb-3">
+                            <label className="text-xs text-text-dim">Reference length:</label>
+                            <input
+                                type="number"
+                                value={calibRefMm}
+                                onChange={(e) => setCalibRefMm(e.target.value)}
+                                className="w-20 bg-ocean-800 border border-border rounded px-2 py-1 text-sm mono-num text-text-primary text-center focus:outline-none focus:border-amber/50"
+                            />
+                            <span className="text-xs text-text-dim">mm</span>
                         </div>
-                        <div className="flex items-center justify-center gap-3 mt-4">
+                        <div className="flex gap-2 justify-center">
                             <button
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-ocean-800 text-xs text-text-primary border border-border hover:border-teal/60 hover:text-teal transition-colors"
-                                onClick={handleAddFromReticle}
+                                onClick={handlePlacePoint}
+                                className="px-6 py-2.5 rounded-lg bg-amber text-ocean-950 font-semibold text-sm hover:bg-amber/90 transition-colors"
                             >
-                                <span className="text-base leading-none">＋</span>
-                                <span>Drop at center</span>
+                                Mark Point {calibPoints.length + 1} / 2
                             </button>
                             <button
-                                className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={handleUndo}
-                                disabled={corners.length === 0}
+                                onClick={() => { setCalibrating(false); setCalibPoints([]); }}
+                                className="px-4 py-2.5 rounded-lg border border-border text-text-secondary text-sm hover:text-text-primary transition-colors"
                             >
-                                ⟲ Undo
-                            </button>
-                            <button
-                                className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={handleClear}
-                                disabled={corners.length === 0}
-                            >
-                                Clear
-                            </button>
-                            <button
-                                className="text-xs text-buoy hover:text-buoy/80 transition-colors"
-                                onClick={handleGoManual}
-                            >
-                                Enter manually instead →
+                                Cancel
                             </button>
                         </div>
                     </div>
+                ) : points.length < 4 ? (
+                    /* MEASUREMENT MODE */
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="mono-num text-sm text-teal">
+                                Point {points.length + 1} of 4
+                            </div>
+                            <div className="flex gap-1.5">
+                                {[0, 1, 2, 3].map(i => (
+                                    <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all ${i < points.length ? 'bg-teal scale-110' : 'bg-steel'}`} />
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Place Point button — big and prominent */}
+                        <button
+                            onClick={handlePlacePoint}
+                            className="w-full py-3.5 rounded-lg bg-teal text-ocean-950 font-bold text-base mb-2 hover:bg-teal/90 transition-colors active:scale-[0.98]"
+                        >
+                            ＋ Place Point
+                        </button>
+
+                        {/* Action row: Undo, Clear, Calibrate, Manual */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex gap-3">
+                                {points.length > 0 && (
+                                    <button
+                                        className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                                        onClick={handleUndo}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 7h8M3 7l3-3M3 7l3 3" /></svg>
+                                        Undo
+                                    </button>
+                                )}
+                                {points.length > 0 && (
+                                    <button
+                                        className="text-xs text-danger/70 hover:text-danger transition-colors"
+                                        onClick={handleClear}
+                                    >
+                                        Clear all
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex gap-3">
+                                {!pxPerMm && (
+                                    <button
+                                        className="text-xs text-amber hover:text-amber/80 transition-colors"
+                                        onClick={() => { setCalibrating(true); setCalibPoints([]); }}
+                                    >
+                                        📏 Calibrate
+                                    </button>
+                                )}
+                                {pxPerMm && (
+                                    <span className="text-xs text-seafoam/60">✓ Calibrated</span>
+                                )}
+                                <button
+                                    className="text-xs text-buoy hover:text-buoy/80 transition-colors"
+                                    onClick={handleGoManual}
+                                >
+                                    Manual entry →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 ) : (
-                    <div className="space-y-3">
+                    /* CONFIRMATION PANEL — 4 points placed */
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                         {/* Shape selector */}
                         <div className="flex gap-2">
                             {['rectangle', 'square'].map(s => (
                                 <button
                                     key={s}
-                                    className={`flex-1 py-1.5 rounded text-sm capitalize transition-all ${shape === s ? 'bg-teal/15 text-teal border border-teal/30' : 'bg-ocean-800 text-text-secondary border border-border'
-                                        }`}
+                                    className={`flex-1 py-1.5 rounded text-sm capitalize transition-all ${shape === s ? 'bg-teal/15 text-teal border border-teal/30' : 'bg-ocean-800 text-text-secondary border border-border'}`}
                                     onClick={() => setShape(s)}
                                 >
                                     {s}
@@ -526,64 +603,48 @@ export default function ARScan() {
                             )}
                         </div>
 
-                        {polygonArea && (
-                            <div className="text-xs text-text-secondary">
-                                Approx. area:{' '}
-                                <span className="mono-num text-text-primary">
-                                    {polygonArea.toLocaleString()} mm²
-                                </span>
-                            </div>
-                        )}
-
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                            <div className="flex items-center gap-1 text-amber">
-                                ⚠️ Camera estimates are rough. Adjust dimensions above if needed.
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1">
-                                    <span className="text-text-dim">Units:</span>
-                                    {['mm', 'cm', 'in'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setUnit(u)}
-                                            className={`px-1.5 py-0.5 rounded border text-[11px] mono-num ${unit === u
-                                                ? 'border-teal/60 text-teal bg-teal/10'
-                                                : 'border-border text-text-dim hover:border-teal/40 hover:text-text-secondary'
-                                                }`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                <span className="text-text-dim">Margin:</span>
+                        {/* Edge Margin & Kerf — NEW for AR flow */}
+                        <div className="flex gap-3">
+                            <div className="flex-1">
+                                <label className="text-xs text-text-dim mb-1 block">Edge Margin (mm)</label>
                                 <input
                                     type="number"
-                                    value={sheet.edgeMargin}
-                                    onChange={(e) => setSheet({ edgeMargin: Number(e.target.value) })}
-                                    className="w-16 bg-ocean-800 border border-border rounded px-2 py-1 text-[11px] mono-num text-text-primary focus:outline-none focus:border-teal/50"
-                                    min="0"
+                                    value={edgeMargin}
+                                    onChange={(e) => setEdgeMargin(e.target.value)}
+                                    className="w-full bg-ocean-800 border border-border rounded px-3 py-2 text-sm mono-num text-text-primary focus:outline-none focus:border-teal/50"
                                 />
-                                <span className="text-text-dim ml-1">Kerf:</span>
+                                <p className="text-[10px] text-text-dim mt-1">How far from the edge to keep cuts</p>
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-xs text-text-dim mb-1 block">Kerf Width (mm)</label>
                                 <input
                                     type="number"
-                                    value={sheet.kerf}
-                                    onChange={(e) => setSheet({ kerf: Number(e.target.value) })}
-                                    className="w-16 bg-ocean-800 border border-border rounded px-2 py-1 text-[11px] mono-num text-text-primary focus:outline-none focus:border-teal/50"
-                                    min="0"
-                                    step="0.5"
+                                    value={kerf}
+                                    onChange={(e) => setKerf(e.target.value)}
+                                    className="w-full bg-ocean-800 border border-border rounded px-3 py-2 text-sm mono-num text-text-primary focus:outline-none focus:border-teal/50"
                                 />
-                                <span className="text-text-dim ml-1">mm</span>
-                                </div>
+                                <p className="text-[10px] text-text-dim mt-1">Blade/laser cut thickness</p>
                             </div>
                         </div>
 
-                        <button
-                            onClick={handleConfirm}
-                            className="w-full py-3 rounded-lg bg-buoy text-white font-semibold text-sm hover:bg-buoy/90 transition-colors"
-                        >
-                            Confirm Dimensions →
-                        </button>
+                        <div className="flex items-center gap-1 text-xs text-amber">
+                            ⚠️ Camera estimates are rough. Adjust dimensions above if needed.
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => { setPoints([]); setDetectedDims(null); }}
+                                className="px-4 py-3 rounded-lg border border-border text-text-secondary text-sm hover:text-text-primary transition-colors"
+                            >
+                                ↩ Remeasure
+                            </button>
+                            <button
+                                onClick={handleConfirm}
+                                className="flex-1 py-3 rounded-lg bg-buoy text-white font-semibold text-sm hover:bg-buoy/90 transition-colors"
+                            >
+                                Confirm Dimensions →
+                            </button>
+                        </div>
                     </div>
                 )}
             </motion.div>

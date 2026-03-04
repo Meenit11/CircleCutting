@@ -55,7 +55,7 @@ export default function ManualEntry() {
                 {/* Header */}
                 <motion.div variants={staggerItem} className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-lg bg-ocean-700 flex items-center justify-center">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#b0916a" strokeWidth="1.2">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#3fb8a0" strokeWidth="1.2">
                             <rect x="2" y="4" width="16" height="12" rx="1" />
                             <path d="M2 8h2M2 12h2" opacity="0.5" />
                             <path d="M6 4v2M10 4v2M14 4v2" opacity="0.5" />
@@ -155,13 +155,13 @@ export default function ManualEntry() {
                                         x={1} y={1}
                                         width={Math.max(38, length * previewScale - 2)}
                                         height={Math.max(28, width * previewScale - 2)}
-                                        fill="rgba(28, 28, 33, 0.5)"
-                                        stroke="#b0916a"
+                                        fill="rgba(18, 30, 42, 0.5)"
+                                        stroke="#3fb8a0"
                                         strokeWidth={1.5}
                                         rx={2}
                                     />
                                     {/* Corner brackets */}
-                                    <path d="M 1,8 L 1,1 L 8,1" fill="none" stroke="#b0916a" strokeWidth={1.5} opacity={0.6} />
+                                    <path d="M 1,8 L 1,1 L 8,1" fill="none" stroke="#3fb8a0" strokeWidth={1.5} opacity={0.6} />
                                     {/* Dimension on top */}
                                     <text
                                         x={Math.max(20, (length * previewScale) / 2)}

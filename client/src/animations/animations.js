@@ -48,11 +48,11 @@ export const hoverLift = {
 };
 
 export const cardHover = {
-    rest: { scale: 1, boxShadow: '0 0 0 rgba(176, 145, 106, 0)' },
+    rest: { scale: 1, boxShadow: '0 0 0 rgba(63, 184, 160, 0)' },
     hover: {
         scale: 1.02,
         y: -2,
-        boxShadow: '0 0 20px rgba(176, 145, 106, 0.12)',
+        boxShadow: '0 0 20px rgba(63, 184, 160, 0.15)',
         transition: { duration: 0.2 },
     },
 };
